@@ -15,21 +15,11 @@ interface IPhilaNumisCore {
         returns (string memory metadataURI, uint256 totalFractions, uint256 circulatingSupply, bool isRedeemed, uint256 redemptionTimestamp);
 }
 
-/// @title LiquidityVault
-/// @notice Bonding curve linear P(s) = m*s + b para compra/venda de frações em USDC.
-/// @dev Fee schedule fechada (playbook "Arquiteto RWA & GameFi"):
-///      - Mint fee (compra = novas frações mintadas): 1% (100 bps)
-///      - Marketplace fee (venda = trade secundário de volta à curva): 2.5% (250 bps)
-///      Ambas configuráveis por ativo via `initCurve`, com os valores acima como default
-///      recomendado. Mantidas separadas (e não um único "spread") porque o playbook trata
-///      mint e marketplace como linhas de receita distintas.
-/// @dev Integração com QuestEngine (Historical Quests, seção 4.2 do playbook):
-///      - Tier 50% (Silver): concede desconto de 0.5% na marketplace fee daquele usuário para os
-///        tokenIds da série, via `setMarketplaceFeeDiscount`.
-///      - Tier 100% (Imperial Curator): concede crédito de cashback = 3% do volume total que o
-///        usuário comprou naquela série, via `grantCashbackCredit`. O crédito é abatido
-///        automaticamente do custo das próximas compras (`buy`) — não é rendimento contínuo, é
-///        desconto de uma vez, financiado pelas próprias fees do protocolo já retidas no vault.
+/// @dev Teto de captação regulatório (playbook, seção 5.1 — CVM 88 / Lei 14.478/2022): cada
+///      ativo tem um limite de captação em USDC definido pelo curador na criação da curva.
+///      Comportamento escolhido: a compra que cruza o teto é permitida (não interrompe a
+///      transação em andamento), mas nenhuma nova compra é aceita depois disso — o teto é
+///      verificado no INÍCIO de cada `buy()`, contra o total já captado ANTES dela.
 contract LiquidityVault is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -44,6 +34,7 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
         uint256 b;                 // preço base, em wei de USDC (6 decimais)
         uint256 mintFeeBps;        // taxa cobrada na compra (mint), em basis points
         uint256 marketplaceFeeBps; // taxa cobrada na venda (trade secundário), em basis points
+        uint256 captationCapUsdc;  // teto regulatório de captação para este ativo, em USDC (0 = sem teto)
         bool initialized;
     }
 
@@ -52,6 +43,8 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
     address public treasury;
 
     mapping(uint256 => CurveParams) public curves;
+    // total já captado (soma de totalCost pago em buy()) por ativo — usado contra o teto regulatório
+    mapping(uint256 => uint256) public totalRaised;
 
     // --- Gamificação (QuestEngine) ---
     // user => tokenId => total de USDC (custo cheio, antes de crédito) já gasto comprando esse ativo
@@ -63,7 +56,10 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
     // soma de todos os créditos de cashback ainda não resgatados — admin NÃO pode retirar isso da tesouraria
     uint256 public totalOutstandingCredits;
 
-    event CurveInitialized(uint256 indexed tokenId, uint256 m, uint256 b, uint256 mintFeeBps, uint256 marketplaceFeeBps);
+    event CurveInitialized(
+        uint256 indexed tokenId, uint256 m, uint256 b, uint256 mintFeeBps, uint256 marketplaceFeeBps, uint256 captationCapUsdc
+    );
+    event CaptationCapUpdated(uint256 indexed tokenId, uint256 newCapUsdc);
     event Bought(uint256 indexed tokenId, address indexed buyer, uint256 amount, uint256 costPaid, uint256 creditUsed);
     event Sold(uint256 indexed tokenId, address indexed seller, uint256 amount, uint256 payout);
     event CashbackCreditGranted(address indexed user, uint256 amount);
@@ -79,14 +75,29 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
 
     /// @param mintFeeBps Use `DEFAULT_MINT_FEE_BPS` (100) salvo necessidade específica do ativo.
     /// @param marketplaceFeeBps Use `DEFAULT_MARKETPLACE_FEE_BPS` (250) salvo necessidade específica.
-    function initCurve(uint256 tokenId, uint256 m, uint256 b, uint256 mintFeeBps, uint256 marketplaceFeeBps)
-        external
-        onlyRole(CURATOR_ROLE)
-    {
+    /// @param captationCapUsdc Teto de captação regulatório para este ativo, em USDC (6 decimais).
+    ///        Use 0 apenas em testnet/staging — em produção, todo ativo deve ter um teto definido
+    ///        pelo jurídico (CVM 88 / Lei 14.478/2022, faixa de referência R$15M-R$25M).
+    function initCurve(
+        uint256 tokenId,
+        uint256 m,
+        uint256 b,
+        uint256 mintFeeBps,
+        uint256 marketplaceFeeBps,
+        uint256 captationCapUsdc
+    ) external onlyRole(CURATOR_ROLE) {
         require(!curves[tokenId].initialized, "curva ja inicializada");
         require(mintFeeBps <= 1000 && marketplaceFeeBps <= 1000, "fee maxima 10%");
-        curves[tokenId] = CurveParams(m, b, mintFeeBps, marketplaceFeeBps, true);
-        emit CurveInitialized(tokenId, m, b, mintFeeBps, marketplaceFeeBps);
+        curves[tokenId] = CurveParams(m, b, mintFeeBps, marketplaceFeeBps, captationCapUsdc, true);
+        emit CurveInitialized(tokenId, m, b, mintFeeBps, marketplaceFeeBps, captationCapUsdc);
+    }
+
+    /// @notice Permite ao curador ajustar o teto de captação depois do deploy (ex: reenquadramento
+    ///         jurídico). Não afeta captação já realizada, só compras futuras.
+    function setCaptationCap(uint256 tokenId, uint256 newCapUsdc) external onlyRole(CURATOR_ROLE) {
+        require(curves[tokenId].initialized, "curva nao inicializada");
+        curves[tokenId].captationCapUsdc = newCapUsdc;
+        emit CaptationCapUpdated(tokenId, newCapUsdc);
     }
 
     /// @notice Custo bruto (sem fee) para comprar `amount` frações a partir do supply atual `s`.
@@ -122,6 +133,11 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
     }
 
     function buy(uint256 tokenId, uint256 amount, uint256 maxCost) external nonReentrant {
+        CurveParams memory c = curves[tokenId];
+        if (c.captationCapUsdc > 0) {
+            require(totalRaised[tokenId] < c.captationCapUsdc, "teto de captacao atingido para este ativo");
+        }
+
         (, uint256 totalCost) = quoteBuy(tokenId, amount);
         require(totalCost <= maxCost, "slippage: custo acima do limite");
 
@@ -140,6 +156,7 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
         // Conta o valor cheio (totalCost) para fins de volume, independente de ter sido pago via
         // crédito — o crédito é um benefício, não deveria "esconder" o volume real do usuário.
         userTotalSpent[msg.sender][tokenId] += totalCost;
+        totalRaised[tokenId] += totalCost;
 
         core.mintFractions(tokenId, msg.sender, amount);
 

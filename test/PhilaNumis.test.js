@@ -43,19 +43,22 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
 
     await core.createAsset("ipfs://laudo-moeda-1845", TOTAL_FRACTIONS);
     await core.createAsset("ipfs://laudo-moeda-1846", TOTAL_FRACTIONS);
+    const NO_CAP = 0n; // testes de fluxo geral não exercitam o teto regulatório
     await vault.initCurve(
       TOKEN_ID,
       ethers.parseUnits("0.001", 6),
       ethers.parseUnits("1", 6),
       await vault.DEFAULT_MINT_FEE_BPS(),
-      await vault.DEFAULT_MARKETPLACE_FEE_BPS()
+      await vault.DEFAULT_MARKETPLACE_FEE_BPS(),
+      NO_CAP
     );
     await vault.initCurve(
       TOKEN_ID_2,
       ethers.parseUnits("0.001", 6),
       ethers.parseUnits("1", 6),
       await vault.DEFAULT_MINT_FEE_BPS(),
-      await vault.DEFAULT_MARKETPLACE_FEE_BPS()
+      await vault.DEFAULT_MARKETPLACE_FEE_BPS(),
+      NO_CAP
     );
     await quest.registerSeries(SERIES_ID, "Imperio do Brasil 1845-1846", [TOKEN_ID, TOKEN_ID_2]);
     await usdc.connect(buyer).approve(await redemption.getAddress(), ethers.MaxUint256);
@@ -144,5 +147,36 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
 
     const amountActuallyPaid = usdcBalanceBefore - usdcBalanceAfter;
     expect(amountActuallyPaid).to.equal(nextTotalCost - expectedCashback);
+  });
+
+  it("teto de captação: permite a compra que cruza o teto, bloqueia a próxima", async function () {
+    // Ativo separado só para este teste, com teto baixo pra ser fácil de cruzar
+    const TOKEN_ID_CAPPED = 3;
+    await core.createAsset("ipfs://laudo-moeda-limitada", TOTAL_FRACTIONS);
+
+    const [, costFor900] = await vault.quoteBuy(TOKEN_ID_CAPPED, 900n);
+    const cap = costFor900 / 2n; // teto propositalmente menor que o custo da primeira compra
+
+    await vault.initCurve(
+      TOKEN_ID_CAPPED,
+      ethers.parseUnits("0.001", 6),
+      ethers.parseUnits("1", 6),
+      await vault.DEFAULT_MINT_FEE_BPS(),
+      await vault.DEFAULT_MARKETPLACE_FEE_BPS(),
+      cap
+    );
+
+    // Primeira compra cruza o teto, mas deve ser aceita (comportamento definido: conclui a compra
+    // em andamento, só bloqueia as próximas)
+    await usdc.connect(buyer).approve(await vault.getAddress(), costFor900);
+    await expect(vault.connect(buyer).buy(TOKEN_ID_CAPPED, 900n, costFor900)).to.not.be.reverted;
+
+    expect(await vault.totalRaised(TOKEN_ID_CAPPED)).to.be.gt(cap);
+
+    // Segunda compra deve ser bloqueada, já que o teto já foi cruzado
+    const [, smallCost] = await vault.quoteBuy(TOKEN_ID_CAPPED, 1n);
+    await usdc.connect(buyer).approve(await vault.getAddress(), smallCost);
+    await expect(vault.connect(buyer).buy(TOKEN_ID_CAPPED, 1n, smallCost))
+      .to.be.revertedWith("teto de captacao atingido para este ativo");
   });
 });

@@ -39,6 +39,20 @@ O cashback é financiado pelas próprias fees de mint/marketplace/resgate já re
 `withdrawTreasury` bloqueia a retirada de qualquer valor que comprometa os créditos ainda não
 resgatados (`totalOutstandingCredits`).
 
+## Teto de captação regulatório (seção 5.1 do playbook — CVM 88 / Lei 14.478/2022)
+
+Cada ativo tem um teto de captação em USDC definido pelo curador em `initCurve` (parâmetro
+`captationCapUsdc`), ajustável depois via `setCaptationCap`. Comportamento (decisão sua):
+
+- A compra que **cruza** o teto é aceita normalmente — não interrompe a transação em andamento.
+- Qualquer compra **seguinte**, feita depois que o total captado já ultrapassou o teto, é
+  bloqueada (`buy()` reverte com `"teto de captacao atingido para este ativo"`).
+- `totalRaised[tokenId]` acumula o `totalCost` de cada compra e pode ser consultado a qualquer
+  momento para acompanhar o quanto falta para o teto.
+- `captationCapUsdc = 0` desativa o teto — use isso **apenas em testnet/staging**; em produção
+  todo ativo deve ter um teto definido pelo jurídico, na faixa de referência R$15M-R$25M
+  convertida para USDC pela cotação vigente na data de estruturação.
+
 ## Decisões e ajustes feitos em relação ao documento original
 
 Revisei o `MVP_Philanumis.odt`, `PHILANUMIS-TEXT.odt`, `PHILONUMIS.pdf` e a skill "Arquiteto RWA &
