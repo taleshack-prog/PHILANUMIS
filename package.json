@@ -1,0 +1,22 @@
+{
+  "name": "philanumis-protocol",
+  "version": "0.1.0",
+  "description": "PhilaNumis - Protocolo de tokenização RWA para colecionáveis (moedas, selos, medalhas) na Base L2",
+  "license": "MIT",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat coverage",
+    "deploy:base-sepolia": "hardhat run scripts/deploy.js --network baseSepolia",
+    "deploy:base": "hardhat run scripts/deploy.js --network base"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.5"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2",
+    "solc": "^0.8.24"
+  }
+}
