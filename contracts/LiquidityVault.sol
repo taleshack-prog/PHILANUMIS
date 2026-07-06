@@ -17,19 +17,25 @@ interface IPhilaNumisCore {
 
 /// @title LiquidityVault
 /// @notice Bonding curve linear P(s) = m*s + b para compra/venda de frações em USDC.
-/// @dev IMPORTANTE — inconsistência encontrada na documentação original que precisa de decisão sua:
-///      MVP_Philanumis.odt cita spread de 2%, PHILANUMIS-TEXT.odt cita 1%. Este contrato usa um
-///      `spreadBps` configurável por ativo (default 200 = 2%) para não travar o deploy — ajuste
-///      conforme a decisão final de fee schedule.
+/// @dev Fee schedule fechada (playbook "Arquiteto RWA & GameFi"):
+///      - Mint fee (compra = novas frações mintadas): 1% (100 bps)
+///      - Marketplace fee (venda = trade secundário de volta à curva): 2.5% (250 bps)
+///      Ambas configuráveis por ativo via `initCurve`, com os valores acima como default
+///      recomendado. Mantidas separadas (e não um único "spread") porque o playbook trata
+///      mint e marketplace como linhas de receita distintas.
 contract LiquidityVault is AccessControl, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     bytes32 public constant CURATOR_ROLE = keccak256("CURATOR_ROLE");
 
+    uint256 public constant DEFAULT_MINT_FEE_BPS = 100;        // 1%
+    uint256 public constant DEFAULT_MARKETPLACE_FEE_BPS = 250; // 2.5%
+
     struct CurveParams {
-        uint256 m;          // inclinação, em wei de USDC (6 decimais) por fração^2
-        uint256 b;          // preço base, em wei de USDC (6 decimais)
-        uint256 spreadBps;  // spread cobrado sobre compra/venda, em basis points (100 = 1%)
+        uint256 m;                 // inclinação, em wei de USDC (6 decimais) por fração^2
+        uint256 b;                 // preço base, em wei de USDC (6 decimais)
+        uint256 mintFeeBps;        // taxa cobrada na compra (mint), em basis points
+        uint256 marketplaceFeeBps; // taxa cobrada na venda (trade secundário), em basis points
         bool initialized;
     }
 
@@ -39,7 +45,7 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
 
     mapping(uint256 => CurveParams) public curves;
 
-    event CurveInitialized(uint256 indexed tokenId, uint256 m, uint256 b, uint256 spreadBps);
+    event CurveInitialized(uint256 indexed tokenId, uint256 m, uint256 b, uint256 mintFeeBps, uint256 marketplaceFeeBps);
     event Bought(uint256 indexed tokenId, address indexed buyer, uint256 amount, uint256 costPaid);
     event Sold(uint256 indexed tokenId, address indexed seller, uint256 amount, uint256 payout);
 
@@ -51,14 +57,19 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
         treasury = treasury_;
     }
 
-    function initCurve(uint256 tokenId, uint256 m, uint256 b, uint256 spreadBps) external onlyRole(CURATOR_ROLE) {
+    /// @param mintFeeBps Use `DEFAULT_MINT_FEE_BPS` (100) salvo necessidade específica do ativo.
+    /// @param marketplaceFeeBps Use `DEFAULT_MARKETPLACE_FEE_BPS` (250) salvo necessidade específica.
+    function initCurve(uint256 tokenId, uint256 m, uint256 b, uint256 mintFeeBps, uint256 marketplaceFeeBps)
+        external
+        onlyRole(CURATOR_ROLE)
+    {
         require(!curves[tokenId].initialized, "curva ja inicializada");
-        require(spreadBps <= 1000, "spread maximo 10%");
-        curves[tokenId] = CurveParams(m, b, spreadBps, true);
-        emit CurveInitialized(tokenId, m, b, spreadBps);
+        require(mintFeeBps <= 1000 && marketplaceFeeBps <= 1000, "fee maxima 10%");
+        curves[tokenId] = CurveParams(m, b, mintFeeBps, marketplaceFeeBps, true);
+        emit CurveInitialized(tokenId, m, b, mintFeeBps, marketplaceFeeBps);
     }
 
-    /// @notice Custo bruto (sem spread) para comprar `amount` frações a partir do supply atual `s`.
+    /// @notice Custo bruto (sem fee) para comprar `amount` frações a partir do supply atual `s`.
     /// @dev Integral de (m*x + b) entre s e s+amount = m*amount*(2s+amount)/2 + b*amount
     function quoteBuy(uint256 tokenId, uint256 amount) public view returns (uint256 grossCost, uint256 totalCost) {
         CurveParams memory c = curves[tokenId];
@@ -66,10 +77,10 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
         (, , uint256 s, ,) = core.assets(tokenId);
 
         grossCost = (c.m * amount * (2 * s + amount)) / 2 + c.b * amount;
-        totalCost = grossCost + (grossCost * c.spreadBps) / 10_000;
+        totalCost = grossCost + (grossCost * c.mintFeeBps) / 10_000;
     }
 
-    /// @notice Retorno bruto (sem spread) ao vender `amount` frações a partir do supply atual `s`.
+    /// @notice Retorno bruto (sem fee) ao vender `amount` frações a partir do supply atual `s`.
     function quoteSell(uint256 tokenId, uint256 amount) public view returns (uint256 grossPayout, uint256 netPayout) {
         CurveParams memory c = curves[tokenId];
         require(c.initialized, "curva nao inicializada");
@@ -78,7 +89,7 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
 
         uint256 sAfter = s - amount;
         grossPayout = (c.m * amount * (sAfter + s)) / 2 + c.b * amount;
-        netPayout = grossPayout - (grossPayout * c.spreadBps) / 10_000;
+        netPayout = grossPayout - (grossPayout * c.marketplaceFeeBps) / 10_000;
     }
 
     function buy(uint256 tokenId, uint256 amount, uint256 maxCost) external nonReentrant {
@@ -101,7 +112,7 @@ contract LiquidityVault is AccessControl, ReentrancyGuard {
         emit Sold(tokenId, msg.sender, amount, netPayout);
     }
 
-    /// @notice Retira o spread acumulado (diferença entre reservas e payouts líquidos) para a tesouraria.
+    /// @notice Retira as fees acumuladas (mint + marketplace) para a tesouraria.
     function withdrawTreasury(uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         usdc.safeTransfer(treasury, amount);
     }

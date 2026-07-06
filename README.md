@@ -17,15 +17,22 @@ verificável, bonding curve de liquidez em USDC e gamificação por completude d
 | `CustodyOracle.sol` | Oracle custom (3 camadas) | Registra attestações: diária (HTF), trimestral (Hacken), anual (Big4). |
 | `QuestEngine.sol` | ERC-1155 soulbound | Badges não-transferíveis por completude de série (Bronze/Silver/Master/Imperial Curator). |
 
+## Fee schedule (fechada pela skill "Arquiteto RWA & GameFi")
+
+| Fee | Valor | Onde está implementada |
+|---|---|---|
+| Mint | 1% | `LiquidityVault.buy()` — `DEFAULT_MINT_FEE_BPS = 100` |
+| Marketplace | 2.5% | `LiquidityVault.sell()` — `DEFAULT_MARKETPLACE_FEE_BPS = 250` |
+| Resgate Físico | 1% | `RedemptionVault.requestRedemption()` — `REDEMPTION_FEE_BPS = 100`, cobrada em USDC sobre o `appraisalValue` informado |
+| Completion Premium | 3% | **Ainda não implementada** — ver seção abaixo |
+
 ## Decisões e ajustes feitos em relação ao documento original
 
-Revisei o `MVP_Philanumis.odt`, `PHILANUMIS-TEXT.odt` e `PHILONUMIS.pdf` linha a linha antes de
-escrever o código. Três pontos precisam da sua validação:
+Revisei o `MVP_Philanumis.odt`, `PHILANUMIS-TEXT.odt`, `PHILONUMIS.pdf` e a skill "Arquiteto RWA &
+GameFi" linha a linha antes de escrever o código. Dois pontos foram resolvidos pela skill (taxas)
+e um segue precisando de decisão sua:
 
-1. **Inconsistência de taxas.** `MVP_Philanumis.odt` cita spread de 2% na bonding curve;
-   `PHILANUMIS-TEXT.odt` cita 1%. Implementei `spreadBps` como parâmetro configurável por ativo
-   (`LiquidityVault.initCurve`), sem travar em um valor fixo. **Decisão pendente sua**: qual é o
-   fee schedule final (mint 1% ou 2%? spread 1% ou 2%? redemption 1% ou 3%?).
+1. ~~Inconsistência de taxas~~ — resolvido pela skill, ver tabela acima.
 2. **"Merkle Proof" no resgate físico.** O texto original propõe Merkle Proof para validar
    propriedade "sem revelar identidade até confirmação". Uma árvore de Merkle tradicional não se
    aplica bem aqui — não há uma lista fixa de leaves a provar, e posse de 100% do supply já é
@@ -37,6 +44,26 @@ escrever o código. Três pontos precisam da sua validação:
    o rascunho original mistura. `QuestEngine` implementa a métrica correta: quantos **itens
    distintos** de uma série (ex: 9 moedas do Império) o usuário possui, não quantas frações de
    uma moeda específica.
+
+## Itens da skill ainda NÃO implementados (precisam de decisão de design antes de codar)
+
+Esses recursos exigem escolhas de arquitetura que não estavam claras o suficiente para eu
+implementar sem alinhar com você primeiro:
+
+- **Completion Premium (3%)**: bônus de rendimento para quem completa um set. Precisa de um pool
+  de tesouraria financiado e uma regra de distribuição (é pago de uma vez ao completar? é um APR
+  contínuo enquanto mantém o set completo? vem de qual fonte de receita?).
+- **Desconto de 0.5% em fees no tier 50%**: exige rastrear o tier de cada usuário por série
+  dentro do `LiquidityVault` no momento da compra/venda — hoje o Vault não conhece o `QuestEngine`.
+  Dá para integrar, mas isso acopla os dois contratos.
+- **Leaderboard + prêmios mensais (0.1% das taxas do protocolo para Top 10)**: exige um mecanismo
+  de distribuição periódica (keeper/cron on-chain ou processo off-chain que dispara um claim).
+- **TWAP na bonding curve**: a mitigação de "Oracle Manipulation" pede TWAP + limites de slippage.
+  Slippage já existe (`maxCost`/`minPayout`), TWAP ainda não — não é trivial numa curva bonding
+  determinística (o preço já é função pura do supply, não de um oráculo externo manipulável da
+  forma clássica), mas vale conversarmos se há um vetor de ataque específico que você quer cobrir.
+- **Anti-dumping (vesting 6 meses para terceiros)**: não se aplica ao MVP fechado (sem terceiros),
+  fica para Fase 3.
 
 ## Estrutura
 

@@ -25,7 +25,7 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await vault.waitForDeployment();
 
     const Redemption = await ethers.getContractFactory("RedemptionVault");
-    redemption = await Redemption.deploy(admin.address, await core.getAddress());
+    redemption = await Redemption.deploy(admin.address, await core.getAddress(), await usdc.getAddress(), admin.address);
     await redemption.waitForDeployment();
 
     const Quest = await ethers.getContractFactory("QuestEngine");
@@ -37,7 +37,14 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await core.grantRole(MINTER_ROLE, await redemption.getAddress());
 
     await core.createAsset("ipfs://laudo-moeda-1845", TOTAL_FRACTIONS);
-    await vault.initCurve(TOKEN_ID, ethers.parseUnits("0.001", 6), ethers.parseUnits("1", 6), 200);
+    await vault.initCurve(
+      TOKEN_ID,
+      ethers.parseUnits("0.001", 6),
+      ethers.parseUnits("1", 6),
+      await vault.DEFAULT_MINT_FEE_BPS(),
+      await vault.DEFAULT_MARKETPLACE_FEE_BPS()
+    );
+    await usdc.connect(buyer).approve(await redemption.getAddress(), ethers.MaxUint256);
   });
 
   it("compra frações via bonding curve e reflete no supply", async function () {
@@ -48,13 +55,20 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     expect(await core.balanceOf(buyer.address, TOKEN_ID)).to.equal(100n);
   });
 
-  it("resgate físico exige 100% das frações", async function () {
+  it("resgate físico exige 100% das frações e cobra fee de 1%", async function () {
     const [, totalCost] = await vault.quoteBuy(TOKEN_ID, TOTAL_FRACTIONS);
     await usdc.connect(buyer).approve(await vault.getAddress(), totalCost);
     await vault.connect(buyer).buy(TOKEN_ID, TOTAL_FRACTIONS, totalCost);
 
     const hash = ethers.keccak256(ethers.toUtf8Bytes("endereco-secreto-do-comprador"));
-    await expect(redemption.connect(buyer).requestRedemption(TOKEN_ID, hash)).to.not.be.reverted;
+    const appraisalValue = ethers.parseUnits("25000", 6); // referência do laudo, em USDC
+    const expectedFee = await redemption.quoteRedemptionFee(appraisalValue);
+
+    const treasuryBalanceBefore = await usdc.balanceOf(admin.address);
+
+    await expect(redemption.connect(buyer).requestRedemption(TOKEN_ID, hash, appraisalValue)).to.not.be.reverted;
+
+    expect(await usdc.balanceOf(admin.address)).to.equal(treasuryBalanceBefore + expectedFee);
 
     await expect(redemption.connect(admin).confirmRedemption(TOKEN_ID, hash))
       .to.emit(redemption, "RedemptionConfirmed");
@@ -66,7 +80,7 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await vault.connect(buyer).buy(TOKEN_ID, 500n, totalCost);
 
     const hash = ethers.keccak256(ethers.toUtf8Bytes("qualquer"));
-    await expect(redemption.connect(buyer).requestRedemption(TOKEN_ID, hash))
+    await expect(redemption.connect(buyer).requestRedemption(TOKEN_ID, hash, ethers.parseUnits("25000", 6)))
       .to.be.revertedWith("precisa deter 100% das fracoes");
   });
 });

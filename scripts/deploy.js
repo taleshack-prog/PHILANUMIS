@@ -27,7 +27,7 @@ async function main() {
 
   // 3. RedemptionVault
   const Redemption = await hre.ethers.getContractFactory("RedemptionVault");
-  const redemption = await Redemption.deploy(deployer.address, await core.getAddress());
+  const redemption = await Redemption.deploy(deployer.address, await core.getAddress(), usdcAddress, treasury);
   await redemption.waitForDeployment();
   console.log("RedemptionVault:", await redemption.getAddress());
 
