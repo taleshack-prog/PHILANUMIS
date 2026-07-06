@@ -5,6 +5,8 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
   let core, vault, redemption, quest, usdc;
   let admin, buyer;
   const TOKEN_ID = 1;
+  const TOKEN_ID_2 = 2; // segundo item da mesma série, usado nos testes de tier/cashback
+  const SERIES_ID = 1;
   const TOTAL_FRACTIONS = 1000n;
 
   beforeEach(async function () {
@@ -29,14 +31,18 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await redemption.waitForDeployment();
 
     const Quest = await ethers.getContractFactory("QuestEngine");
-    quest = await Quest.deploy(admin.address, await core.getAddress());
+    quest = await Quest.deploy(admin.address, await core.getAddress(), await vault.getAddress());
     await quest.waitForDeployment();
 
     const MINTER_ROLE = await core.MINTER_ROLE();
     await core.grantRole(MINTER_ROLE, await vault.getAddress());
     await core.grantRole(MINTER_ROLE, await redemption.getAddress());
 
+    const QUEST_ENGINE_ROLE = await vault.QUEST_ENGINE_ROLE();
+    await vault.grantRole(QUEST_ENGINE_ROLE, await quest.getAddress());
+
     await core.createAsset("ipfs://laudo-moeda-1845", TOTAL_FRACTIONS);
+    await core.createAsset("ipfs://laudo-moeda-1846", TOTAL_FRACTIONS);
     await vault.initCurve(
       TOKEN_ID,
       ethers.parseUnits("0.001", 6),
@@ -44,6 +50,14 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
       await vault.DEFAULT_MINT_FEE_BPS(),
       await vault.DEFAULT_MARKETPLACE_FEE_BPS()
     );
+    await vault.initCurve(
+      TOKEN_ID_2,
+      ethers.parseUnits("0.001", 6),
+      ethers.parseUnits("1", 6),
+      await vault.DEFAULT_MINT_FEE_BPS(),
+      await vault.DEFAULT_MARKETPLACE_FEE_BPS()
+    );
+    await quest.registerSeries(SERIES_ID, "Imperio do Brasil 1845-1846", [TOKEN_ID, TOKEN_ID_2]);
     await usdc.connect(buyer).approve(await redemption.getAddress(), ethers.MaxUint256);
   });
 
@@ -82,5 +96,53 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     const hash = ethers.keccak256(ethers.toUtf8Bytes("qualquer"));
     await expect(redemption.connect(buyer).requestRedemption(TOKEN_ID, hash, ethers.parseUnits("25000", 6)))
       .to.be.revertedWith("precisa deter 100% das fracoes");
+  });
+
+  it("tier 50% (Silver) concede 0.5% de desconto na marketplace fee", async function () {
+    // Compra qualquer quantidade do primeiro item da série -> 1 de 2 itens = 50% de completude
+    const [, totalCost] = await vault.quoteBuy(TOKEN_ID, 10n);
+    await usdc.connect(buyer).approve(await vault.getAddress(), totalCost);
+    await vault.connect(buyer).buy(TOKEN_ID, 10n, totalCost);
+
+    expect(await quest.completionBps(SERIES_ID, buyer.address)).to.equal(5000n);
+
+    await expect(quest.checkAndAwardBadges(SERIES_ID, buyer.address)).to.emit(quest, "BadgeAwarded");
+
+    const discount = await vault.marketplaceFeeDiscountBps(buyer.address, TOKEN_ID);
+    expect(discount).to.equal(await quest.SILVER_MARKETPLACE_DISCOUNT_BPS());
+
+    // Confere que o desconto realmente reduz a fee cobrada na venda
+    const [grossFull, netWithDiscount] = await vault.quoteSell(TOKEN_ID, 10n, buyer.address);
+    const [, netWithoutDiscount] = await vault.quoteSell(TOKEN_ID, 10n, ethers.ZeroAddress);
+    expect(netWithDiscount).to.be.gt(netWithoutDiscount);
+    expect(grossFull).to.be.gte(netWithDiscount);
+  });
+
+  it("tier 100% (Imperial Curator) concede cashback de 3% do volume comprado, usado na próxima compra", async function () {
+    // Compra os dois itens da série -> 100% de completude
+    const [, cost1] = await vault.quoteBuy(TOKEN_ID, 10n);
+    await usdc.connect(buyer).approve(await vault.getAddress(), cost1);
+    await vault.connect(buyer).buy(TOKEN_ID, 10n, cost1);
+
+    const [, cost2] = await vault.quoteBuy(TOKEN_ID_2, 10n);
+    await usdc.connect(buyer).approve(await vault.getAddress(), cost2);
+    await vault.connect(buyer).buy(TOKEN_ID_2, 10n, cost2);
+
+    expect(await quest.completionBps(SERIES_ID, buyer.address)).to.equal(10_000n);
+
+    await expect(quest.checkAndAwardBadges(SERIES_ID, buyer.address)).to.emit(quest, "BadgeAwarded");
+
+    const expectedCashback = ((cost1 + cost2) * 300n) / 10_000n; // COMPLETION_CASHBACK_BPS = 3%
+    expect(await vault.cashbackCredits(buyer.address)).to.equal(expectedCashback);
+
+    // A próxima compra deve consumir o crédito automaticamente
+    const [, nextTotalCost] = await vault.quoteBuy(TOKEN_ID, 5n);
+    const usdcBalanceBefore = await usdc.balanceOf(buyer.address);
+    await usdc.connect(buyer).approve(await vault.getAddress(), nextTotalCost);
+    await vault.connect(buyer).buy(TOKEN_ID, 5n, nextTotalCost);
+    const usdcBalanceAfter = await usdc.balanceOf(buyer.address);
+
+    const amountActuallyPaid = usdcBalanceBefore - usdcBalanceAfter;
+    expect(amountActuallyPaid).to.equal(nextTotalCost - expectedCashback);
   });
 });

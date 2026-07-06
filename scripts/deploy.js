@@ -39,17 +39,20 @@ async function main() {
 
   // 5. QuestEngine
   const Quest = await hre.ethers.getContractFactory("QuestEngine");
-  const quest = await Quest.deploy(deployer.address, await core.getAddress());
+  const quest = await Quest.deploy(deployer.address, await core.getAddress(), await vault.getAddress());
   await quest.waitForDeployment();
   console.log("QuestEngine:", await quest.getAddress());
 
   // --- Wiring de roles ---
   const MINTER_ROLE = await core.MINTER_ROLE();
   const ORACLE_ROLE = await core.ORACLE_ROLE();
+  const QUEST_ENGINE_ROLE = await vault.QUEST_ENGINE_ROLE();
 
   await (await core.grantRole(MINTER_ROLE, await vault.getAddress())).wait();
   await (await core.grantRole(MINTER_ROLE, await redemption.getAddress())).wait();
+  await (await vault.grantRole(QUEST_ENGINE_ROLE, await quest.getAddress())).wait();
   console.log("MINTER_ROLE concedido a LiquidityVault e RedemptionVault.");
+  console.log("QUEST_ENGINE_ROLE concedido a QuestEngine no LiquidityVault.");
 
   // ORACLE_ROLE do Core deve ir para uma conta/multisig operada pela custódia (Hack Tech Farm),
   // não necessariamente o mesmo endereço do CustodyOracle contract — ajuste conforme sua operação.

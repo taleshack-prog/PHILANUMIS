@@ -8,6 +8,12 @@ interface IPhilaNumisCoreForQuests {
     function balanceOf(address account, uint256 id) external view returns (uint256);
 }
 
+interface ILiquidityVaultForQuests {
+    function grantCashbackCredit(address user, uint256 amount) external;
+    function setMarketplaceFeeDiscount(address user, uint256 tokenId, uint256 discountBps) external;
+    function userTotalSpent(address user, uint256 tokenId) external view returns (uint256);
+}
+
 /// @title QuestEngine
 /// @notice Badges soulbound (não-transferíveis) emitidos por completude de "séries" históricas
 ///         (ex: 9 moedas do Império do Brasil 1843-1889).
@@ -35,6 +41,12 @@ contract QuestEngine is ERC1155, AccessControl {
     }
 
     IPhilaNumisCoreForQuests public immutable core;
+    ILiquidityVaultForQuests public immutable vault;
+
+    // Recompensas dos tiers 50% e 100% (playbook, seção 4.2) — 25% e 75% são apenas
+    // sociais/informativos (badge + acesso a canal / notificação) e não têm efeito on-chain aqui.
+    uint256 public constant SILVER_MARKETPLACE_DISCOUNT_BPS = 50;  // 0.5%
+    uint256 public constant COMPLETION_CASHBACK_BPS = 300;         // 3% do volume comprado na série
 
     mapping(uint256 => Series) public series; // seriesId => Series
     // seriesId => user => maior tier já conquistado (+1; 0 = nenhum)
@@ -43,10 +55,11 @@ contract QuestEngine is ERC1155, AccessControl {
     event SeriesRegistered(uint256 indexed seriesId, string name, uint256 itemCount);
     event BadgeAwarded(uint256 indexed seriesId, address indexed user, Tier tier);
 
-    constructor(address admin, address core_) ERC1155("") {
+    constructor(address admin, address core_, address vault_) ERC1155("") {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(QUEST_MASTER_ROLE, admin);
         core = IPhilaNumisCoreForQuests(core_);
+        vault = ILiquidityVaultForQuests(vault_);
     }
 
     function registerSeries(uint256 seriesId, string calldata name, uint256[] calldata tokenIds)
@@ -104,6 +117,32 @@ contract QuestEngine is ERC1155, AccessControl {
         _mint(user, badgeId, 1, "");
 
         emit BadgeAwarded(seriesId, user, newTier);
+
+        if (newTier == Tier.Silver) {
+            _grantMarketplaceDiscount(seriesId, user);
+        } else if (newTier == Tier.ImperialCurator) {
+            _grantCompletionCashback(seriesId, user);
+        }
+    }
+
+    /// @notice Tier 50%: desconto de 0.5% na marketplace fee para todos os ativos da série.
+    function _grantMarketplaceDiscount(uint256 seriesId, address user) internal {
+        uint256[] memory tokenIds = series[seriesId].tokenIds;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            vault.setMarketplaceFeeDiscount(user, tokenIds[i], SILVER_MARKETPLACE_DISCOUNT_BPS);
+        }
+    }
+
+    /// @notice Tier 100%: cashback de 3% sobre o volume total (USDC) que o usuário comprou na
+    ///         série, creditado no LiquidityVault para abater compras futuras.
+    function _grantCompletionCashback(uint256 seriesId, address user) internal {
+        uint256[] memory tokenIds = series[seriesId].tokenIds;
+        uint256 totalSpend = 0;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            totalSpend += vault.userTotalSpent(user, tokenIds[i]);
+        }
+        uint256 bonus = (totalSpend * COMPLETION_CASHBACK_BPS) / 10_000;
+        vault.grantCashbackCredit(user, bonus);
     }
 
     function _badgeId(uint256 seriesId, Tier tier) internal pure returns (uint256) {

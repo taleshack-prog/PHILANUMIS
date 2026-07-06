@@ -24,7 +24,20 @@ verificável, bonding curve de liquidez em USDC e gamificação por completude d
 | Mint | 1% | `LiquidityVault.buy()` — `DEFAULT_MINT_FEE_BPS = 100` |
 | Marketplace | 2.5% | `LiquidityVault.sell()` — `DEFAULT_MARKETPLACE_FEE_BPS = 250` |
 | Resgate Físico | 1% | `RedemptionVault.requestRedemption()` — `REDEMPTION_FEE_BPS = 100`, cobrada em USDC sobre o `appraisalValue` informado |
-| Completion Premium | 3% | **Ainda não implementada** — ver seção abaixo |
+| Completion Premium | 3% (cashback, não yield contínuo) | `QuestEngine` → `LiquidityVault.grantCashbackCredit()`, abatido automaticamente na próxima compra |
+
+## Gamificação — Historical Quests (seção 4.2 do playbook)
+
+| Tier | Completude | Efeito on-chain |
+|---|---|---|
+| Bronze | 25% | Badge soulbound apenas (acesso a canal é off-chain/Discord) |
+| Silver | 50% | Badge + **desconto de 0.5% na marketplace fee** para os ativos da série (`LiquidityVault.marketplaceFeeDiscountBps`) |
+| Master | 75% | Badge apenas (notificação prioritária é off-chain) |
+| Imperial Curator | 100% | Badge + **cashback de 3% do volume comprado na série**, creditado em `cashbackCredits` e abatido automaticamente na próxima compra via `buy()` |
+
+O cashback é financiado pelas próprias fees de mint/marketplace/resgate já retidas no vault —
+`withdrawTreasury` bloqueia a retirada de qualquer valor que comprometa os créditos ainda não
+resgatados (`totalOutstandingCredits`).
 
 ## Decisões e ajustes feitos em relação ao documento original
 
@@ -47,17 +60,9 @@ e um segue precisando de decisão sua:
 
 ## Itens da skill ainda NÃO implementados (precisam de decisão de design antes de codar)
 
-Esses recursos exigem escolhas de arquitetura que não estavam claras o suficiente para eu
-implementar sem alinhar com você primeiro:
-
-- **Completion Premium (3%)**: bônus de rendimento para quem completa um set. Precisa de um pool
-  de tesouraria financiado e uma regra de distribuição (é pago de uma vez ao completar? é um APR
-  contínuo enquanto mantém o set completo? vem de qual fonte de receita?).
-- **Desconto de 0.5% em fees no tier 50%**: exige rastrear o tier de cada usuário por série
-  dentro do `LiquidityVault` no momento da compra/venda — hoje o Vault não conhece o `QuestEngine`.
-  Dá para integrar, mas isso acopla os dois contratos.
 - **Leaderboard + prêmios mensais (0.1% das taxas do protocolo para Top 10)**: exige um mecanismo
   de distribuição periódica (keeper/cron on-chain ou processo off-chain que dispara um claim).
+  Também exige uma fonte de dados de "valor de catálogo" (Bentes/Scott/Gibbons) para rankear.
 - **TWAP na bonding curve**: a mitigação de "Oracle Manipulation" pede TWAP + limites de slippage.
   Slippage já existe (`maxCost`/`minPayout`), TWAP ainda não — não é trivial numa curva bonding
   determinística (o preço já é função pura do supply, não de um oráculo externo manipulável da
