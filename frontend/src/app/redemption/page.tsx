@@ -5,6 +5,7 @@ import { parseUnits, formatUnits } from "viem";
 import { useReadContract, useWriteContract } from "wagmi";
 import { contracts } from "@/lib/contracts";
 import { useRedemption } from "@/lib/hooks/useRedemption";
+import { extractRevertReason } from "@/lib/errors";
 
 export default function RedemptionPage() {
   // TODO: em produção isso vem de um seletor de "meus ativos com 100% de posse" —
@@ -26,22 +27,28 @@ export default function RedemptionPage() {
   });
 
   const { writeContractAsync: approveUsdc } = useWriteContract();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function handleSubmit() {
     if (!ownsAll || !shippingInfo || appraisalValueUnits === 0n) return;
+    setErrorMessage(null);
 
-    // 1) Aprova o USDC da fee de resgate (1% do valor do laudo) antes de solicitar.
-    if (estimatedFee) {
-      await approveUsdc({
-        ...contracts.usdc,
-        functionName: "approve",
-        args: [contracts.redemptionVault.address, estimatedFee as bigint],
-      });
+    try {
+      // 1) Aprova o USDC da fee de resgate (1% do valor do laudo) antes de solicitar.
+      if (estimatedFee) {
+        await approveUsdc({
+          ...contracts.usdc,
+          functionName: "approve",
+          args: [contracts.redemptionVault.address, estimatedFee as bigint],
+        });
+      }
+
+      // 2) Envia só o HASH dos dados — o conteúdo revelado vai por canal privado à Hack Tech Farm.
+      const hash = hashShippingInfo(shippingInfo);
+      await requestRedemption(hash, appraisalValueUnits);
+    } catch (err) {
+      setErrorMessage(extractRevertReason(err));
     }
-
-    // 2) Envia só o HASH dos dados — o conteúdo revelado vai por canal privado à Hack Tech Farm.
-    const hash = hashShippingInfo(shippingInfo);
-    await requestRedemption(hash, appraisalValueUnits);
   }
 
   return (
@@ -102,6 +109,10 @@ export default function RedemptionPage() {
         >
           {isPending ? "Confirmando…" : "Solicitar resgate"}
         </button>
+
+        {errorMessage && (
+          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
+        )}
       </div>
     </main>
   );

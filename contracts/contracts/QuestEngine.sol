@@ -48,6 +48,7 @@ contract QuestEngine is ERC1155, AccessControl {
     uint256 public constant SILVER_MARKETPLACE_DISCOUNT_BPS = 50;  // 0.5%
     uint256 public constant COMPLETION_CASHBACK_BPS = 300;         // 3% do volume comprado na série
 
+    uint256 public seriesCounter;
     mapping(uint256 => Series) public series; // seriesId => Series
     // seriesId => user => maior tier já conquistado (+1; 0 = nenhum)
     mapping(uint256 => mapping(address => uint8)) public highestTierAchieved;
@@ -62,12 +63,17 @@ contract QuestEngine is ERC1155, AccessControl {
         vault = ILiquidityVaultForQuests(vault_);
     }
 
-    function registerSeries(uint256 seriesId, string calldata name, uint256[] calldata tokenIds)
+    /// @dev seriesId agora é auto-incrementado (mesmo padrão do `tokenCounter` no
+    ///      PhilaNumisCore), em vez de escolhido pelo chamador. Isso permite ao frontend
+    ///      descobrir todas as séries existentes lendo `seriesCounter` e iterando 1..N via
+    ///      multicall — sem isso, "listar todas as séries" exigiria um indexer de eventos.
+    function registerSeries(string calldata name, uint256[] calldata tokenIds)
         external
         onlyRole(QUEST_MASTER_ROLE)
+        returns (uint256 seriesId)
     {
-        require(!series[seriesId].exists, "serie ja registrada");
         require(tokenIds.length > 0, "serie precisa de ao menos 1 item");
+        seriesId = ++seriesCounter;
         series[seriesId] = Series({name: name, tokenIds: tokenIds, exists: true});
         emit SeriesRegistered(seriesId, name, tokenIds.length);
     }

@@ -33,7 +33,7 @@ export function useBuyFlow(tokenId: bigint, mode: Extract<SaleMode, "bonding-cur
     });
   }
 
-  const needsApproval = (maxCost: bigint) => (allowance ?? 0n) < maxCost;
+  const needsApproval = (maxCost: bigint) => ((allowance as bigint | undefined) ?? 0n) < maxCost;
 
   return { approve, buy, needsApproval, isPending };
 }
@@ -56,4 +56,32 @@ export function useBuyQuote(
 
   const [grossCost, totalCost] = (data as [bigint, bigint] | undefined) ?? [0n, 0n];
   return { grossCost, totalCost, isLoading };
+}
+
+/// Venda só existe na modalidade bonding curve — Fixed Price (playbook, seção 3.1) só cobre
+/// venda primária, como documentado no FixedPriceSale.sol. Por isso este hook não recebe `mode`.
+export function useSellFlow(tokenId: bigint) {
+  const { writeContractAsync, isPending } = useWriteContract();
+
+  async function sell(amount: bigint, minPayout: bigint) {
+    return writeContractAsync({
+      ...contracts.liquidityVault,
+      functionName: "sell",
+      args: [tokenId, amount, minPayout],
+    });
+  }
+
+  return { sell, isPending };
+}
+
+export function useSellQuote(tokenId: bigint, amount: bigint, trader?: `0x${string}`) {
+  const { data, isLoading } = useReadContract({
+    ...contracts.liquidityVault,
+    functionName: "quoteSell",
+    args: [tokenId, amount, trader ?? "0x0000000000000000000000000000000000000000"],
+    query: { enabled: amount > 0n },
+  });
+
+  const [grossPayout, netPayout] = (data as [bigint, bigint] | undefined) ?? [0n, 0n];
+  return { grossPayout, netPayout, isLoading };
 }

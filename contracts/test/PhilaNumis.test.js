@@ -62,7 +62,7 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
       await vault.DEFAULT_MARKETPLACE_FEE_BPS(),
       NO_CAP
     );
-    await quest.registerSeries(SERIES_ID, "Imperio do Brasil 1845-1846", [TOKEN_ID, TOKEN_ID_2]);
+    await quest.registerSeries("Imperio do Brasil 1845-1846", [TOKEN_ID, TOKEN_ID_2]);
     await usdc.connect(buyer).approve(await redemption.getAddress(), ethers.MaxUint256);
 
     const FixedSale = await ethers.getContractFactory("FixedPriceSale");

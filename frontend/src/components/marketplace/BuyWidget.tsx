@@ -4,6 +4,7 @@ import { useState } from "react";
 import { formatUnits } from "viem";
 import { useSaleMode } from "@/lib/hooks/useAsset";
 import { useBuyFlow, useBuyQuote } from "@/lib/hooks/useBuyFlow";
+import { extractRevertReason } from "@/lib/errors";
 
 const USDC_DECIMALS = 6;
 const SLIPPAGE_BPS = 100n; // 1% de tolerância padrão sobre o custo cotado
@@ -39,15 +40,21 @@ function BuyForm({
   const amountBig = amount ? BigInt(amount) : 0n;
   const { grossCost, totalCost, isLoading: quoteLoading } = useBuyQuote(tokenId, amountBig, mode);
   const { approve, buy, needsApproval, isPending } = useBuyFlow(tokenId, mode);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const maxCost = totalCost + (totalCost * SLIPPAGE_BPS) / 10_000n;
 
   async function handleBuy() {
     if (amountBig === 0n) return;
-    if (needsApproval(maxCost)) {
-      await approve(maxCost);
+    setErrorMessage(null);
+    try {
+      if (needsApproval(maxCost)) {
+        await approve(maxCost);
+      }
+      await buy(amountBig, maxCost);
+    } catch (err) {
+      setErrorMessage(extractRevertReason(err));
     }
-    await buy(amountBig, maxCost);
   }
 
   return (
@@ -72,6 +79,10 @@ function BuyForm({
           <p>Custo (sem taxa): {formatUnits(grossCost, USDC_DECIMALS)} USDC</p>
           <p className="font-medium text-ink">Total a pagar: {formatUnits(totalCost, USDC_DECIMALS)} USDC</p>
         </div>
+      )}
+
+      {errorMessage && (
+        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
       )}
 
       <button

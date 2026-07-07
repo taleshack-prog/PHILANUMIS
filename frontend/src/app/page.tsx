@@ -3,6 +3,7 @@ import { ConnectButton } from "@/components/wallet/ConnectButton";
 
 const SECTIONS = [
   { href: "/marketplace", title: "Marketplace", desc: "Compre frações de moedas, selos e medalhas" },
+  { href: "/portfolio", title: "Meus ativos", desc: "Veja o que você possui e venda ou resgate" },
   { href: "/quests", title: "Historical Quests", desc: "Acompanhe séries, tiers e badges" },
   { href: "/redemption", title: "Resgate físico", desc: "Troque 100% de um ativo pelo item real" },
   { href: "/custody", title: "Prova de custódia", desc: "Veja as attestações de reserva de cada ativo" },

@@ -39,29 +39,33 @@ src/
   app/
     layout.tsx          # força render dinâmico (ver nota abaixo) + Providers
     providers.tsx        # Privy + wagmi + react-query
-    page.tsx              # landing com navegação para as 4 seções
+    page.tsx              # landing com navegação para as 5 seções
     marketplace/
-      page.tsx            # listagem (stub — ver TODO)
-      [tokenId]/page.tsx  # detalhe do ativo + BuyWidget
-    quests/page.tsx        # progresso de séries + claim de tier
-    redemption/page.tsx     # fluxo de burn-to-claim (commit-reveal)
-    custody/page.tsx        # status de prova de reserva
+      page.tsx            # listagem real (via tokenCounter + multicall)
+      [tokenId]/page.tsx  # detalhe do ativo + BuyWidget + SellWidget
+    portfolio/page.tsx      # "meus ativos" — saldo do usuário conectado
+    quests/page.tsx          # listagem real de séries + progresso + claim de tier
+    redemption/page.tsx       # fluxo de burn-to-claim (commit-reveal)
+    custody/page.tsx          # status de prova de reserva
   components/
     wallet/ConnectButton.tsx
-    marketplace/BuyWidget.tsx   # detecta bonding curve vs fixed price automaticamente
+    marketplace/
+      BuyWidget.tsx       # detecta bonding curve vs fixed price automaticamente
+      SellWidget.tsx       # só bonding curve (Fixed Price não tem venda secundária)
     quests/SeriesProgress.tsx
     custody/ProofOfReserveBadge.tsx
   lib/
     chains.ts             # Base mainnet + Sepolia
     wagmi.ts              # config wagmi (sem connectors próprios — Privy injeta os dele)
+    errors.ts              # extrai a mensagem de revert do Solidity de dentro do erro do viem
     contracts/
       addresses.ts        # lidos de .env, com fallback e warning se faltar
       abis/*.json         # ABIs reais, gerados por solc a partir do repo de contratos
-      index.ts             # {address, abi} prontos pro wagmi
+      index.ts             # {address, abi} prontos pro wagmi (abi tipado como Abi do viem)
     hooks/
-      useAsset.ts          # lê o Core + detecta modalidade de venda (bonding curve/fixed price)
-      useBuyFlow.ts         # approve + buy, funciona pras duas modalidades
-      useQuestProgress.ts   # completude de série + claim de tier
+      useAsset.ts          # lê o Core + lista todos os ativos + portfólio do usuário
+      useBuyFlow.ts         # approve + buy + sell, funciona pras duas modalidades
+      useQuestProgress.ts   # lista todas as séries + completude + claim de tier
       useRedemption.ts      # commit-reveal do hash de envio + requestRedemption
 ```
 
@@ -72,19 +76,35 @@ Next tentava pré-renderizar estaticamente todas as páginas, e isso quebra com 
 inicializa sem app ID real em build time) — mas mesmo se não quebrasse, não faria sentido: toda
 página aqui depende de saldo/allowance/tier por usuário, então HTML estático nunca seria útil.
 
-## Limitações conhecidas (documentadas, não escondidas)
+## O que foi completado nesta rodada
 
-1. **Marketplace e Quests não têm indexação.** `/marketplace` e `/quests` hoje são stubs que
-   apontam pro ativo/série #1 fixo. Listar "todos os ativos existentes" ou "todas as séries"
-   requer um indexer (subgraph via The Graph, ou um cron simples gravando eventos `AssetCreated`
-   / `SeriesRegistered` em Postgres) — ler isso direto da chain iterando `tokenCounter` funciona
-   pro MVP mas não escala nem permite busca/filtro.
+- **Indexação de marketplace e quests, sem indexer externo.** `PhilaNumisCore.tokenCounter` e
+  `QuestEngine.seriesCounter` (este último, novo — `registerSeries` passou a auto-incrementar o
+  ID, no mesmo padrão do `createAsset`) permitem ao frontend descobrir todos os ativos/séries
+  existentes iterando 1..N via multicall (`useReadContracts`). `/marketplace` e `/quests` agora
+  listam tudo de verdade, não mais um `tokenId`/`seriesId` fixo.
+- **Fluxo de venda (bonding curve).** Antes só existia compra. `SellWidget` + `useSellFlow` /
+  `useSellQuote` cobrem a venda de volta à curva, respeitando o desconto de tier do usuário
+  (`marketplaceFeeDiscountBps`) na cotação.
+- **Tratamento de erro de transação revertida.** `lib/errors.ts` extrai a mensagem `require(...)`
+  do Solidity de dentro do erro embrulhado pelo viem/wagmi e mostra na UI (compra, venda, resgate,
+  claim de tier) em vez de só rejeitar a Promise silenciosamente.
+- **Página "Meus ativos" (`/portfolio`).** Cruza os ativos existentes com o saldo do usuário
+  conectado, sinaliza quando ele tem 100% de um ativo (elegível pra resgate) e linka pras ações.
+
+## Limitações que ainda ficam (genuinamente fora do escopo desta entrega)
+
+1. **Indexação por multicall não escala indefinidamente.** Funciona bem até algumas dezenas de
+   ativos/séries (a escala da Fase 1 do roadmap — 10 ativos). Se o catálogo crescer para
+   centenas/milhares, migrar para um indexer de eventos (subgraph) evita recarregar tudo a cada
+   visita.
 2. **Cashback do QuestEngine não aparece na UI do FixedPriceSale.** Mesma limitação já documentada
-   no contrato — a UI só reflete o que o contrato faz.
-3. **Sem tratamento de erro de transação revertida na UI.** Os widgets chamam `writeContractAsync`
-   e mostram "Confirmando…", mas não há tratamento de revert (ex: teto de captação atingido,
-   slippage estourado) mostrado de volta pro usuário de forma amigável — hoje só rejeita a Promise
-   e o erro fica só no console.
+   no contrato (`FixedPriceSale.sol`) — a UI só reflete o que o contrato faz, e o ledger de
+   créditos vive só no `LiquidityVault`.
+3. **Gas Abstraction** ainda não implementado — decisão de produto pendente (quem paga o gas
+   patrocinado?), ver seção acima.
+4. **Sem paginação/cache persistente.** Toda visita a `/marketplace`, `/quests` ou `/portfolio`
+   rebusca tudo do zero — aceitável na escala atual, mas vale revisitar com mais ativos.
 
 ## Como rodar
 
