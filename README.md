@@ -7,15 +7,26 @@ verificável, bonding curve de liquidez em USDC e gamificação por completude d
 > Escopo desta primeira entrega: **Fase 1 (MVP)** conforme o roadmap do projeto — protocolo
 > fechado, único emissor (Hack Tech Farm), sem factory pattern nem onboarding de terceiros.
 
-## Arquitetura — 5 módulos
+## Arquitetura — 6 módulos
 
 | Contrato | Padrão | Responsabilidade |
 |---|---|---|
 | `PhilaNumisCore.sol` | ERC-1155 + AccessControl | Identidade do ativo e frações. Mint/burn controlado por role. |
-| `LiquidityVault.sol` | Bonding Curve linear + USDC | Precificação automática `P(s) = m·s + b`. Compra/venda com spread. |
+| `LiquidityVault.sol` | Bonding Curve linear + USDC | Precificação automática `P(s) = m·s + b`. Compra/venda com fee. |
+| `FixedPriceSale.sol` | Preço fixo + USDC | Modalidade "Fixed Price" (seção 3.1): preço definido por perícia, para lançamentos e ativos premium. Só venda primária. |
 | `RedemptionVault.sol` | Escrow custom | Burn-to-claim: exige 100% das frações, commit-reveal de dados de envio. |
 | `CustodyOracle.sol` | Oracle custom (3 camadas) | Registra attestações: diária (HTF), trimestral (Hacken), anual (Big4). |
 | `QuestEngine.sol` | ERC-1155 soulbound | Badges não-transferíveis por completude de série (Bronze/Silver/Master/Imperial Curator). |
+
+Com o `FixedPriceSale`, a Fase 1 do roadmap ("Bonding Curve + Fixed Price + 10 ativos") está
+tecnicamente coberta pelos contratos — falta só popular com os 10 ativos reais e fazer o deploy.
+
+> **Limitação conhecida do FixedPriceSale**: os créditos de cashback do tier 100% (`QuestEngine`
+> → `LiquidityVault.cashbackCredits`) não são reconhecidos aqui — o ledger de créditos vive só no
+> `LiquidityVault`. Um usuário com crédito acumulado numa série em bonding curve não consegue
+> gastá-lo numa compra Fixed Price. Se isso for relevante para o produto, a correção é extrair
+> esse ledger para um contrato de tesouraria compartilhado — não fiz isso agora para não acoplar
+> os dois contratos de venda sem sua confirmação.
 
 ## Fee schedule (fechada pela skill "Arquiteto RWA & GameFi")
 

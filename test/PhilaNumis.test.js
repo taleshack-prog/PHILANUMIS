@@ -2,10 +2,11 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("PhilaNumis MVP - fluxo integrado", function () {
-  let core, vault, redemption, quest, usdc;
+  let core, vault, redemption, quest, fixedSale, usdc;
   let admin, buyer;
   const TOKEN_ID = 1;
   const TOKEN_ID_2 = 2; // segundo item da mesma série, usado nos testes de tier/cashback
+  const TOKEN_ID_FIXED = 3; // ativo vendido em modalidade Fixed Price
   const SERIES_ID = 1;
   const TOTAL_FRACTIONS = 1000n;
 
@@ -43,6 +44,7 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
 
     await core.createAsset("ipfs://laudo-moeda-1845", TOTAL_FRACTIONS);
     await core.createAsset("ipfs://laudo-moeda-1846", TOTAL_FRACTIONS);
+    await core.createAsset("ipfs://laudo-medalha-premium", TOTAL_FRACTIONS);
     const NO_CAP = 0n; // testes de fluxo geral não exercitam o teto regulatório
     await vault.initCurve(
       TOKEN_ID,
@@ -62,6 +64,11 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     );
     await quest.registerSeries(SERIES_ID, "Imperio do Brasil 1845-1846", [TOKEN_ID, TOKEN_ID_2]);
     await usdc.connect(buyer).approve(await redemption.getAddress(), ethers.MaxUint256);
+
+    const FixedSale = await ethers.getContractFactory("FixedPriceSale");
+    fixedSale = await FixedSale.deploy(admin.address, await usdc.getAddress(), await core.getAddress(), admin.address);
+    await fixedSale.waitForDeployment();
+    await core.grantRole(MINTER_ROLE, await fixedSale.getAddress());
   });
 
   it("compra frações via bonding curve e reflete no supply", async function () {
@@ -151,7 +158,7 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
 
   it("teto de captação: permite a compra que cruza o teto, bloqueia a próxima", async function () {
     // Ativo separado só para este teste, com teto baixo pra ser fácil de cruzar
-    const TOKEN_ID_CAPPED = 3;
+    const TOKEN_ID_CAPPED = 4;
     await core.createAsset("ipfs://laudo-moeda-limitada", TOTAL_FRACTIONS);
 
     const [, costFor900] = await vault.quoteBuy(TOKEN_ID_CAPPED, 900n);
@@ -178,5 +185,57 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await usdc.connect(buyer).approve(await vault.getAddress(), smallCost);
     await expect(vault.connect(buyer).buy(TOKEN_ID_CAPPED, 1n, smallCost))
       .to.be.revertedWith("teto de captacao atingido para este ativo");
+  });
+
+  describe("FixedPriceSale (modalidade preço fixo, seção 3.1 do playbook)", function () {
+    const PRICE_PER_FRACTION = ethers.parseUnits("25", 6); // ex: laudo avaliou o item em 25.000 USDC / 1000 frações
+
+    beforeEach(async function () {
+      await fixedSale.listAsset(
+        TOKEN_ID_FIXED,
+        PRICE_PER_FRACTION,
+        await fixedSale.DEFAULT_MINT_FEE_BPS(),
+        0n // sem teto neste teste
+      );
+    });
+
+    it("compra a preço fixo cobra o preço da perícia + fee de mint", async function () {
+      const [grossCost, totalCost] = await fixedSale.quoteBuy(TOKEN_ID_FIXED, 100n);
+      expect(grossCost).to.equal(PRICE_PER_FRACTION * 100n);
+      expect(totalCost).to.equal(grossCost + (grossCost * 100n) / 10_000n); // mint fee 1%
+
+      await usdc.connect(buyer).approve(await fixedSale.getAddress(), totalCost);
+      await fixedSale.connect(buyer).buy(TOKEN_ID_FIXED, 100n, totalCost);
+
+      expect(await core.balanceOf(buyer.address, TOKEN_ID_FIXED)).to.equal(100n);
+    });
+
+    it("preço não varia com o supply (ao contrário da bonding curve)", async function () {
+      const [grossBefore] = await fixedSale.quoteBuy(TOKEN_ID_FIXED, 100n);
+      const [, totalCost] = await fixedSale.quoteBuy(TOKEN_ID_FIXED, 100n);
+      await usdc.connect(buyer).approve(await fixedSale.getAddress(), totalCost);
+      await fixedSale.connect(buyer).buy(TOKEN_ID_FIXED, 100n, totalCost);
+
+      const [grossAfter] = await fixedSale.quoteBuy(TOKEN_ID_FIXED, 100n);
+      expect(grossAfter).to.equal(grossBefore); // preço fixo: não muda após a compra
+    });
+
+    it("respeita o teto de captação", async function () {
+      const TOKEN_ID_FIXED_CAPPED = 4;
+      await core.createAsset("ipfs://laudo-relogio-premium", TOTAL_FRACTIONS);
+
+      const cap = PRICE_PER_FRACTION * 5n; // teto cobre só 5 frações
+
+      await fixedSale.listAsset(TOKEN_ID_FIXED_CAPPED, PRICE_PER_FRACTION, await fixedSale.DEFAULT_MINT_FEE_BPS(), cap);
+
+      const [, totalCost10] = await fixedSale.quoteBuy(TOKEN_ID_FIXED_CAPPED, 10n);
+      await usdc.connect(buyer).approve(await fixedSale.getAddress(), totalCost10);
+      await expect(fixedSale.connect(buyer).buy(TOKEN_ID_FIXED_CAPPED, 10n, totalCost10)).to.not.be.reverted;
+
+      const [, smallCost] = await fixedSale.quoteBuy(TOKEN_ID_FIXED_CAPPED, 1n);
+      await usdc.connect(buyer).approve(await fixedSale.getAddress(), smallCost);
+      await expect(fixedSale.connect(buyer).buy(TOKEN_ID_FIXED_CAPPED, 1n, smallCost))
+        .to.be.revertedWith("teto de captacao atingido para este ativo");
+    });
   });
 });

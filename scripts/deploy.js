@@ -25,19 +25,25 @@ async function main() {
   await vault.waitForDeployment();
   console.log("LiquidityVault:", await vault.getAddress());
 
-  // 3. RedemptionVault
+  // 3. FixedPriceSale
+  const FixedSale = await hre.ethers.getContractFactory("FixedPriceSale");
+  const fixedSale = await FixedSale.deploy(deployer.address, usdcAddress, await core.getAddress(), treasury);
+  await fixedSale.waitForDeployment();
+  console.log("FixedPriceSale:", await fixedSale.getAddress());
+
+  // 4. RedemptionVault
   const Redemption = await hre.ethers.getContractFactory("RedemptionVault");
   const redemption = await Redemption.deploy(deployer.address, await core.getAddress(), usdcAddress, treasury);
   await redemption.waitForDeployment();
   console.log("RedemptionVault:", await redemption.getAddress());
 
-  // 4. CustodyOracle
+  // 5. CustodyOracle
   const Oracle = await hre.ethers.getContractFactory("CustodyOracle");
   const oracle = await Oracle.deploy(deployer.address);
   await oracle.waitForDeployment();
   console.log("CustodyOracle:", await oracle.getAddress());
 
-  // 5. QuestEngine
+  // 6. QuestEngine
   const Quest = await hre.ethers.getContractFactory("QuestEngine");
   const quest = await Quest.deploy(deployer.address, await core.getAddress(), await vault.getAddress());
   await quest.waitForDeployment();
@@ -49,9 +55,10 @@ async function main() {
   const QUEST_ENGINE_ROLE = await vault.QUEST_ENGINE_ROLE();
 
   await (await core.grantRole(MINTER_ROLE, await vault.getAddress())).wait();
+  await (await core.grantRole(MINTER_ROLE, await fixedSale.getAddress())).wait();
   await (await core.grantRole(MINTER_ROLE, await redemption.getAddress())).wait();
   await (await vault.grantRole(QUEST_ENGINE_ROLE, await quest.getAddress())).wait();
-  console.log("MINTER_ROLE concedido a LiquidityVault e RedemptionVault.");
+  console.log("MINTER_ROLE concedido a LiquidityVault, FixedPriceSale e RedemptionVault.");
   console.log("QUEST_ENGINE_ROLE concedido a QuestEngine no LiquidityVault.");
 
   // ORACLE_ROLE do Core deve ir para uma conta/multisig operada pela custódia (Hack Tech Farm),
@@ -62,6 +69,7 @@ async function main() {
   console.log({
     core: await core.getAddress(),
     vault: await vault.getAddress(),
+    fixedSale: await fixedSale.getAddress(),
     redemption: await redemption.getAddress(),
     oracle: await oracle.getAddress(),
     quest: await quest.getAddress(),
