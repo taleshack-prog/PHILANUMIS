@@ -61,8 +61,10 @@ async function main() {
   console.log("MINTER_ROLE concedido a LiquidityVault, FixedPriceSale e RedemptionVault.");
   console.log("QUEST_ENGINE_ROLE concedido a QuestEngine no LiquidityVault.");
 
-  // ORACLE_ROLE do Core deve ir para uma conta/multisig operada pela custódia (Hack Tech Farm),
-  // não necessariamente o mesmo endereço do CustodyOracle contract — ajuste conforme sua operação.
+  // ORACLE_ROLE do Core precisa ir para o RedemptionVault — é ele quem chama markAsRedeemed()
+  // dentro de confirmRedemption(), depois que o custodiante confirma o hash de envio.
+  // Também concedida ao deployer para permitir attestações manuais/testes emergenciais.
+  await (await core.grantRole(ORACLE_ROLE, await redemption.getAddress())).wait();
   await (await core.grantRole(ORACLE_ROLE, deployer.address)).wait();
 
   console.log("\nDeploy completo. Endereços:");

@@ -39,6 +39,9 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     await core.grantRole(MINTER_ROLE, await vault.getAddress());
     await core.grantRole(MINTER_ROLE, await redemption.getAddress());
 
+    const ORACLE_ROLE = await core.ORACLE_ROLE();
+    await core.grantRole(ORACLE_ROLE, await redemption.getAddress());
+
     const QUEST_ENGINE_ROLE = await vault.QUEST_ENGINE_ROLE();
     await vault.grantRole(QUEST_ENGINE_ROLE, await quest.getAddress());
 
@@ -161,17 +164,20 @@ describe("PhilaNumis MVP - fluxo integrado", function () {
     const TOKEN_ID_CAPPED = 4;
     await core.createAsset("ipfs://laudo-moeda-limitada", TOTAL_FRACTIONS);
 
-    const [, costFor900] = await vault.quoteBuy(TOKEN_ID_CAPPED, 900n);
-    const cap = costFor900 / 2n; // teto propositalmente menor que o custo da primeira compra
-
+    // Precisa inicializar a curva ANTES de cotar (quoteBuy exige curva já configurada) —
+    // começa com teto 0 (sem limite) e ajusta o valor real depois de saber o custo de 900 frações.
     await vault.initCurve(
       TOKEN_ID_CAPPED,
       ethers.parseUnits("0.001", 6),
       ethers.parseUnits("1", 6),
       await vault.DEFAULT_MINT_FEE_BPS(),
       await vault.DEFAULT_MARKETPLACE_FEE_BPS(),
-      cap
+      0n
     );
+
+    const [, costFor900] = await vault.quoteBuy(TOKEN_ID_CAPPED, 900n);
+    const cap = costFor900 / 2n; // teto propositalmente menor que o custo da primeira compra
+    await vault.setCaptationCap(TOKEN_ID_CAPPED, cap);
 
     // Primeira compra cruza o teto, mas deve ser aceita (comportamento definido: conclui a compra
     // em andamento, só bloqueia as próximas)
