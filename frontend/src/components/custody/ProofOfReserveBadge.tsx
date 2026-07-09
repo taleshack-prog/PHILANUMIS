@@ -10,15 +10,15 @@ export function ProofOfReserveBadge({ tokenId }: { tokenId: bigint }) {
     args: [tokenId],
   });
 
-  if (isLoading) return <span className="text-xs text-gray-500">Verificando custódia…</span>;
+  if (isLoading) return <span className="text-xs text-ink-dim">Verificando custódia…</span>;
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${
-        isValid ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs ${
+        isValid ? "bg-success-bg text-success" : "bg-danger-bg text-danger"
       }`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${isValid ? "bg-green-600" : "bg-red-600"}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${isValid ? "bg-success" : "bg-danger"}`} />
       {isValid ? "Custódia verificada" : "Attestação desatualizada ou ausente"}
     </span>
   );

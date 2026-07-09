@@ -5,6 +5,8 @@ import { formatUnits } from "viem";
 import { useAccount } from "wagmi";
 import { useSellFlow, useSellQuote } from "@/lib/hooks/useBuyFlow";
 import { extractRevertReason } from "@/lib/errors";
+import { Card, InfoBox, Input } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 const USDC_DECIMALS = 6;
 const SLIPPAGE_BPS = 100n;
@@ -26,45 +28,31 @@ export function SellWidget({ tokenId }: { tokenId: bigint }) {
     try {
       await sell(amountBig, minPayout);
     } catch (err) {
-      // Reverts do contrato (ex: "amount excede supply circulante") chegam aqui na mensagem —
-      // mostramos direto pro usuário em vez de deixar só no console.
       setErrorMessage(extractRevertReason(err));
     }
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg border p-4">
-      <span className="text-xs uppercase tracking-wide text-gray-500">Vender frações</span>
+    <Card className="flex flex-col gap-3">
+      <span className="font-mono text-xs uppercase tracking-wide text-ink-dim">Vender frações</span>
 
-      <label className="flex flex-col gap-1 text-sm">
+      <label className="flex flex-col gap-1 text-sm text-ink">
         Quantidade de frações
-        <input
-          type="number"
-          min={1}
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          className="rounded-md border px-3 py-2"
-        />
+        <Input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} />
       </label>
 
       {amountBig > 0n && !quoteLoading && (
-        <div className="text-sm text-gray-600">
+        <div className="font-mono text-sm text-ink-dim">
           <p>Retorno (sem taxa): {formatUnits(grossPayout, USDC_DECIMALS)} USDC</p>
           <p className="font-medium text-ink">Você recebe: {formatUnits(netPayout, USDC_DECIMALS)} USDC</p>
         </div>
       )}
 
-      {errorMessage && (
-        <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
-      )}
+      {errorMessage && <InfoBox tone="danger">{errorMessage}</InfoBox>}
 
-      <button
-        onClick={handleSell}
-        disabled={amountBig === 0n || isPending}
-        className="rounded-md border border-ink px-4 py-2 text-sm text-ink disabled:opacity-40"
-      >
+      <Button variant="secondary" onClick={handleSell} disabled={amountBig === 0n || isPending}>
         {isPending ? "Confirmando…" : "Vender"}
-      </button>
-    </div>
+      </Button>
+    </Card>
   );
 }

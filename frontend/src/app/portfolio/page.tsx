@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAccount } from "wagmi";
 import { useMyPortfolio } from "@/lib/hooks/useAsset";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
+import { Card } from "@/components/ui/Card";
 
 export default function PortfolioPage() {
   const { address, isConnected } = useAccount();
@@ -11,9 +12,9 @@ export default function PortfolioPage() {
 
   if (!isConnected) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-10">
-        <h1 className="text-lg font-medium">Meus ativos</h1>
-        <p className="mt-2 text-sm text-gray-600">Conecte-se para ver suas frações.</p>
+      <main className="mx-auto max-w-3xl px-6 py-12">
+        <h1 className="font-display text-2xl text-ink">Meus ativos</h1>
+        <p className="mt-2 text-sm text-ink-dim">Conecte-se para ver suas frações.</p>
         <div className="mt-4">
           <ConnectButton />
         </div>
@@ -22,15 +23,15 @@ export default function PortfolioPage() {
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-10">
-      <h1 className="text-lg font-medium">Meus ativos</h1>
+    <main className="mx-auto max-w-3xl px-6 py-12">
+      <h1 className="font-display text-2xl text-ink">Meus ativos</h1>
 
-      {isLoading && <p className="mt-4 text-sm text-gray-500">Carregando…</p>}
+      {isLoading && <p className="mt-4 text-sm text-ink-dim">Carregando…</p>}
 
       {!isLoading && owned.length === 0 && (
-        <p className="mt-4 text-sm text-gray-600">
+        <p className="mt-4 text-sm text-ink-dim">
           Você ainda não possui frações de nenhum ativo.{" "}
-          <Link href="/marketplace" className="underline">
+          <Link href="/marketplace" className="text-circuit hover:underline">
             Ver marketplace
           </Link>
         </p>
@@ -38,25 +39,25 @@ export default function PortfolioPage() {
 
       <div className="mt-6 flex flex-col gap-3">
         {owned.map((asset) => (
-          <div key={asset.tokenId.toString()} className="flex items-center justify-between rounded-lg border p-4">
+          <Card key={asset.tokenId.toString()} className="flex items-center justify-between">
             <div>
-              <p className="font-medium">Ativo #{asset.tokenId.toString()}</p>
-              <p className="text-xs text-gray-500">
+              <p className="font-display text-ink">Ativo #{asset.tokenId.toString()}</p>
+              <p className="mt-1 font-mono text-xs text-ink-dim">
                 Você tem {asset.balance.toString()} / {asset.totalFractions.toString()} frações
                 {asset.ownsAll && " — 100%, elegível para resgate"}
               </p>
             </div>
-            <div className="flex gap-2 text-sm">
-              <Link href={`/marketplace/${asset.tokenId.toString()}`} className="underline">
+            <div className="flex gap-3 text-sm">
+              <Link href={`/marketplace/${asset.tokenId.toString()}`} className="text-circuit hover:underline">
                 Ver / vender
               </Link>
               {asset.ownsAll && !asset.isRedeemed && (
-                <Link href="/redemption" className="underline">
+                <Link href="/redemption" className="text-circuit hover:underline">
                   Resgatar
                 </Link>
               )}
             </div>
-          </div>
+          </Card>
         ))}
       </div>
     </main>

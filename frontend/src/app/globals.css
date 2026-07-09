@@ -6,4 +6,27 @@ html,
 body {
   padding: 0;
   margin: 0;
+  background-color: #0b0d10;
+  color: #ede6d6;
+}
+
+* {
+  border-color: #262b33;
+}
+
+/* Foco de teclado sempre visível — piso de qualidade, não decoração */
+:focus-visible {
+  outline: 2px solid #46e0c4;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

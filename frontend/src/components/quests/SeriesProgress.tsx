@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useSeriesProgress } from "@/lib/hooks/useQuestProgress";
 import { extractRevertReason } from "@/lib/errors";
+import { Card, InfoBox } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 const TIER_LABELS = ["Nenhum", "Bronze (25%)", "Silver (50%)", "Master (75%)", "Imperial Curator (100%)"];
 const TIER_THRESHOLDS = [0, 25, 50, 75, 100];
@@ -24,32 +26,30 @@ export function SeriesProgress({ seriesId }: { seriesId: bigint }) {
   }
 
   return (
-    <div className="rounded-lg border p-4">
-      <h3 className="font-medium">{name ?? `Série #${seriesId.toString()}`}</h3>
+    <Card>
+      <h3 className="font-display text-lg text-ink">{name ?? `Série #${seriesId.toString()}`}</h3>
 
-      <div className="mt-2 h-2 w-full rounded-full bg-gray-100">
+      <div className="mt-3 h-1.5 w-full rounded-full bg-background">
         <div
-          className="h-2 rounded-full bg-ink"
+          className="h-1.5 rounded-full bg-circuit transition-all"
           style={{ width: `${Math.min(completionPct, 100)}%` }}
         />
       </div>
-      <p className="mt-1 text-xs text-gray-600">
+      <p className="mt-2 font-mono text-xs text-ink-dim">
         {completionPct.toFixed(0)}% completo — tier atual: {TIER_LABELS[currentTier]}
       </p>
 
       {canClaimNext && (
-        <button
-          onClick={handleClaim}
-          disabled={isPending}
-          className="mt-3 rounded-md bg-ink px-3 py-1.5 text-xs text-parchment disabled:opacity-40"
-        >
+        <Button onClick={handleClaim} disabled={isPending} className="mt-3 text-xs">
           {isPending ? "Confirmando…" : `Reivindicar ${TIER_LABELS[currentTier + 1]}`}
-        </button>
+        </Button>
       )}
 
       {errorMessage && (
-        <p className="mt-2 rounded-md bg-red-50 px-2 py-1.5 text-xs text-red-700">{errorMessage}</p>
+        <div className="mt-2">
+          <InfoBox tone="danger">{errorMessage}</InfoBox>
+        </div>
       )}
-    </div>
+    </Card>
   );
 }

@@ -6,6 +6,8 @@ import { useReadContract, useWriteContract } from "wagmi";
 import { contracts } from "@/lib/contracts";
 import { useRedemption } from "@/lib/hooks/useRedemption";
 import { extractRevertReason } from "@/lib/errors";
+import { Input, Textarea, InfoBox } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 
 export default function RedemptionPage() {
   // TODO: em produção isso vem de um seletor de "meus ativos com 100% de posse" —
@@ -34,7 +36,6 @@ export default function RedemptionPage() {
     setErrorMessage(null);
 
     try {
-      // 1) Aprova o USDC da fee de resgate (1% do valor do laudo) antes de solicitar.
       if (estimatedFee) {
         await approveUsdc({
           ...contracts.usdc,
@@ -43,7 +44,6 @@ export default function RedemptionPage() {
         });
       }
 
-      // 2) Envia só o HASH dos dados — o conteúdo revelado vai por canal privado à Hack Tech Farm.
       const hash = hashShippingInfo(shippingInfo);
       await requestRedemption(hash, appraisalValueUnits);
     } catch (err) {
@@ -52,67 +52,50 @@ export default function RedemptionPage() {
   }
 
   return (
-    <main className="mx-auto max-w-xl px-6 py-10">
-      <h1 className="text-lg font-medium">Resgate físico</h1>
-      <p className="mt-2 text-sm text-gray-600">
+    <main className="mx-auto max-w-xl px-6 py-12">
+      <h1 className="font-display text-2xl text-ink">Resgate físico</h1>
+      <p className="mt-2 text-sm text-ink-dim">
         Exige deter 100% das frações do ativo. O conteúdo dos seus dados de envio não é publicado
         on-chain — apenas um hash. Envie os dados reais à Hack Tech Farm por um canal privado após
         solicitar aqui.
       </p>
 
       <div className="mt-6 flex flex-col gap-3">
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-ink">
           ID do ativo
-          <input
-            value={tokenIdInput}
-            onChange={(e) => setTokenIdInput(e.target.value)}
-            className="rounded-md border px-3 py-2"
-          />
+          <Input value={tokenIdInput} onChange={(e) => setTokenIdInput(e.target.value)} />
         </label>
 
         {!ownsAll && (
-          <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <InfoBox tone="warning">
             Você não possui 100% das frações deste ativo — resgate indisponível.
-          </p>
+          </InfoBox>
         )}
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-ink">
           Valor do laudo (USDC)
-          <input
-            value={appraisalValue}
-            onChange={(e) => setAppraisalValue(e.target.value)}
-            placeholder="25000"
-            className="rounded-md border px-3 py-2"
-          />
+          <Input value={appraisalValue} onChange={(e) => setAppraisalValue(e.target.value)} placeholder="25000" />
         </label>
 
         {estimatedFee !== undefined && appraisalValueUnits > 0n && (
-          <p className="text-xs text-gray-600">
+          <p className="font-mono text-xs text-ink-dim">
             Fee de resgate (1%): {formatUnits(estimatedFee as bigint, 6)} USDC
           </p>
         )}
 
-        <label className="flex flex-col gap-1 text-sm">
+        <label className="flex flex-col gap-1 text-sm text-ink">
           Dados de envio (nome, endereço, documento) — só o hash vai on-chain
-          <textarea
-            value={shippingInfo}
-            onChange={(e) => setShippingInfo(e.target.value)}
-            rows={4}
-            className="rounded-md border px-3 py-2"
-          />
+          <Textarea value={shippingInfo} onChange={(e) => setShippingInfo(e.target.value)} rows={4} />
         </label>
 
-        <button
+        <Button
           onClick={handleSubmit}
           disabled={!ownsAll || isPending || !shippingInfo || appraisalValueUnits === 0n}
-          className="rounded-md bg-ink px-4 py-2 text-sm text-parchment disabled:opacity-40"
         >
           {isPending ? "Confirmando…" : "Solicitar resgate"}
-        </button>
+        </Button>
 
-        {errorMessage && (
-          <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{errorMessage}</p>
-        )}
+        {errorMessage && <InfoBox tone="danger">{errorMessage}</InfoBox>}
       </div>
     </main>
   );
