@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@/components/wallet/ConnectButton";
 import { GuillochePattern } from "@/components/ui/GuillochePattern";
+import { useIsAdmin } from "@/lib/hooks/useIsAdmin";
 
 const NAV_LINKS = [
   { href: "/marketplace", label: "Marketplace" },
@@ -15,6 +16,7 @@ const NAV_LINKS = [
 
 export function Header() {
   const pathname = usePathname();
+  const { isAdmin } = useIsAdmin();
 
   return (
     <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-md">
@@ -39,6 +41,16 @@ export function Header() {
               </Link>
             );
           })}
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className={`font-mono text-sm transition-colors ${
+                pathname?.startsWith("/admin") ? "text-circuit" : "text-bronze hover:text-bronze-bright"
+              }`}
+            >
+              Admin
+            </Link>
+          )}
         </nav>
 
         <ConnectButton />
